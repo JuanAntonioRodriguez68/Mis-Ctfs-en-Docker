@@ -1,0 +1,63 @@
+FROM ubuntu:20.04
+
+# Evitar prompts durante la instalación
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Actualizar el índice de paquetes e instalar apt-utils y tzdata
+RUN apt-get update && apt-get install -y apt-utils tzdata
+
+# Configurar zona horaria
+RUN ln -fs /usr/share/zoneinfo/Europe/Madrid /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
+
+# Instalar servicios y dependencias necesarias
+RUN apt-get update && apt-get install -y \
+    apache2 \
+    openssh-server \
+    python3 \
+    man \
+    sudo \
+    curl \
+    php libapache2-mod-php  # PHP necesario para ejecutar LFI
+
+# Copiar y dar permisos al script
+COPY adjust_logs_permissions.sh /usr/local/bin/adjust_logs_permissions.sh
+RUN chmod +x /usr/local/bin/adjust_logs_permissions.sh
+
+# Configurar SSH
+RUN mkdir /var/run/sshd && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+
+# Crear usuarios con sus contraseñas
+RUN useradd -m -s /bin/bash pinguino && echo "pinguino:balu" | chpasswd
+RUN useradd -m -s /bin/bash mario && echo "mario:invitaacachopo" | chpasswd
+
+# Pista en los logs de Apache
+RUN echo "[INFO] Archivo oculto en /var/www/html/.hidden_pass" >> /var/log/apache2/access.log
+
+# Archivo oculto para vulnerabilidad LFI (contraseña de pinguino)
+RUN echo "balu" > /var/www/html/.hidden_pass && chmod 644 /var/www/html/.hidden_pass
+
+# Contraseña de mario oculta en el home de pinguino
+RUN echo "La contraseña de mario es: invitaacachopo" > /home/pinguino/nota_mario.txt && chmod 600 /home/pinguino/nota_mario.txt && chown pinguino:pinguino /home/pinguino/nota_mario.txt
+
+# Dar permisos SUID para escalada de privilegios
+RUN chmod u+s /usr/bin/man
+RUN chmod u+s /usr/bin/python3
+
+# Configurar Apache para evitar errores de acceso
+RUN echo "EnableSendfile Off" >> /etc/apache2/apache2.conf
+
+# Desactivar restricciones de PHP para permitir LFI
+RUN sed -i 's/^open_basedir/#open_basedir/' /etc/php/*/apache2/php.ini
+
+# Dar permisos de lectura al archivo access.log
+RUN touch /var/log/apache2/access.log && chmod 644 /var/log/apache2/access.log
+
+# Copiar archivos vulnerables al servidor web
+COPY www/ /var/www/html/
+RUN chmod -R 755 /var/www/html/
+
+# Exponer los puertos necesarios
+EXPOSE 22 80
+
+# Iniciar los servicios al arrancar el contenedor
+CMD service ssh start && service apache2 start && /usr/local/bin/adjust_logs_permissions.sh && tail -f /dev/null

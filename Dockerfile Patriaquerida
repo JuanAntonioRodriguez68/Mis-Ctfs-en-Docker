@@ -61,3 +61,16 @@ EXPOSE 22 80
 
 # Iniciar los servicios al arrancar el contenedor
 CMD service ssh start && service apache2 start && /usr/local/bin/adjust_logs_permissions.sh && tail -f /dev/null
+
+# index.php
+
+<?php
+// Vulnerabilidad LFI
+if (isset($_GET['page'])) {
+    $page = $_GET['page'];
+    include($page);
+} else {
+    echo "Bienvenido al servidor CTF Patriaquerida.¡No olvides revisar el archivo oculto en /var/www/html/.hidden_pass!";
+}
+?>
+
